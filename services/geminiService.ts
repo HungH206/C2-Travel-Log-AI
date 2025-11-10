@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { FormData, CalculationResult } from '../types';
 
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+const apiKey = 'AIzaSyC_I4Nw3semFsGR0nniw8vnJt6_lBS1JLg';
 if (!apiKey) {
   console.error('VITE_GEMINI_API_KEY is not set');
 }
