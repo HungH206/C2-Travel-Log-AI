@@ -74,7 +74,13 @@ export async function getTravelAdvice(formData: TravelFormData, distance_km: num
     console.log('Gemini API call successful');
 
     let jsonText = response.text.trim();
-    console.log('Raw response:', jsonText.substring(0, 200));
+    console.log('Raw response:', jsonText.substring(0, 500));
+    
+    // Check if response is HTML/CSS instead of JSON
+    if (jsonText.startsWith('<') || jsonText.includes('<style>') || jsonText.includes('<!DOCTYPE')) {
+      console.error('Received HTML response instead of JSON:', jsonText);
+      throw new Error('API returned an error page. This usually means: 1) API key is invalid, 2) Generative Language API is not enabled, or 3) API quota exceeded. Check console for full response.');
+    }
     
     // Clean up potential markdown formatting from the response
     if (jsonText.startsWith("```json")) {
