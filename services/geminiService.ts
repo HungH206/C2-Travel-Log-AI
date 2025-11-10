@@ -56,7 +56,13 @@ export async function getTravelAdvice(formData: FormData, distance_km: number): 
       throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
     }
 
+    console.log('API Key loaded:', apiKey ? 'Yes' : 'No');
+    console.log('API Key length:', apiKey?.length);
+    console.log('API Key first 10 chars:', apiKey?.substring(0, 10));
+
     const prompt = buildPrompt(formData, distance_km);
+    
+    console.log('Calling Gemini API...');
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash-exp',
       contents: prompt,
@@ -65,8 +71,10 @@ export async function getTravelAdvice(formData: FormData, distance_km: number): 
         responseSchema: responseSchema,
       },
     });
+    console.log('Gemini API call successful');
 
     let jsonText = response.text.trim();
+    console.log('Raw response:', jsonText.substring(0, 200));
     
     // Clean up potential markdown formatting from the response
     if (jsonText.startsWith("```json")) {
@@ -86,15 +94,25 @@ export async function getTravelAdvice(formData: FormData, distance_km: number): 
 
   } catch (error) {
     console.error("Error calling Gemini API:", error);
+    
+    // Try to extract more details from the error
+    if (error && typeof error === 'object') {
+      console.error("Error keys:", Object.keys(error));
+      console.error("Error details:", error);
+    }
+    
     if (error instanceof Error) {
-      if (error.message.includes('API key')) {
-        throw new Error('Invalid Gemini API key. Please check your VITE_GEMINI_API_KEY.');
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+      
+      if (error.message.includes('API key') || error.message.includes('API_KEY') || error.message.includes('403')) {
+        throw new Error(`Invalid Gemini API key or API not enabled. Please: 1) Check VITE_GEMINI_API_KEY in .env 2) Enable Generative Language API at https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com`);
       }
       if (error instanceof SyntaxError) {
-        throw new Error("Received invalid response from Gemini API. Please check your API key and try again.");
+        throw new Error("Received invalid response from Gemini API. Check browser console for details.");
       }
       throw new Error(`Gemini API error: ${error.message}`);
     }
-    throw new Error("Failed to get travel advice from AI. Please try again.");
+    throw new Error("Failed to get travel advice from AI. Check browser console for details.");
   }
 }
