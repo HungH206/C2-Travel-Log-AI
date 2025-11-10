@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
-import { FormData, CalculationResult } from '../types';
+import { FormData as TravelFormData, CalculationResult } from '../types';
 
-const apiKey = 'AIzaSyC_I4Nw3semFsGR0nniw8vnJt6_lBS1JLg';
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string;
 if (!apiKey) {
   console.error('VITE_GEMINI_API_KEY is not set');
 }
@@ -24,7 +24,7 @@ const responseSchema = {
   required: ['route_co2', 'electric_co2', 'total_co2', 'distance_km', 'summary', 'advice'],
 };
 
-function buildPrompt(formData: FormData, distance_km: number): string {
+function buildPrompt(formData: TravelFormData, distance_km: number): string {
     return `
 You are an expert in calculating carbon footprints for travel. Your task is to analyze the user's travel and energy data, calculate the CO₂ emissions, and provide actionable advice for reducing their environmental impact.
 
@@ -50,7 +50,7 @@ Instructions:
 `;
 }
 
-export async function getTravelAdvice(formData: FormData, distance_km: number): Promise<CalculationResult> {
+export async function getTravelAdvice(formData: TravelFormData, distance_km: number): Promise<CalculationResult> {
   try {
     if (!apiKey) {
       throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
