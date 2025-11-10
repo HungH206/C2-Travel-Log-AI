@@ -1,0 +1,7 @@
+{
+  "name": "EcoRoute AI",
+  "description": "An application to help users estimate their trip's CO₂ impact and home electricity emissions, then provides Gemini-generated tips for greener travel choices.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
