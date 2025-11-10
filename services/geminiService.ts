@@ -1,9 +1,13 @@
+import { GoogleGenAI } from "@google/genai";
 import { FormData, CalculationResult } from '../types';
 
-// Use a plain JSON schema (no dependency on @google/genai Type enum) so the
-// file can be bundled safely for the client. The server-side implementation
-// (which uses the official client) may re-use this schema when invoking the
-// model.
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+if (!apiKey) {
+  console.error('VITE_GEMINI_API_KEY is not set');
+}
+
+const ai = new GoogleGenAI({ apiKey: apiKey || '' });
+
 const responseSchema = {
   type: 'object',
   properties: {
@@ -48,20 +52,31 @@ Instructions:
 
 export async function getTravelAdvice(formData: FormData, distance_km: number): Promise<CalculationResult> {
   try {
-    const prompt = buildPrompt(formData, distance_km);
-    // Always call our server proxy. Do not initialize the GenAI client in the browser.
-    const resp = await fetch('/api/gemini', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, responseSchema }),
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Gemini proxy error (${resp.status}): ${text}`);
+    if (!apiKey) {
+      throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
     }
 
-    const result = await resp.json();
+    const prompt = buildPrompt(formData, distance_km);
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash-exp',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: responseSchema,
+      },
+    });
+
+    let jsonText = response.text.trim();
+    
+    // Clean up potential markdown formatting from the response
+    if (jsonText.startsWith("```json")) {
+      jsonText = jsonText.slice("```json".length).trim();
+    }
+    if (jsonText.endsWith("```")) {
+      jsonText = jsonText.slice(0, -3).trim();
+    }
+
+    const result = JSON.parse(jsonText);
     
     if (result && typeof result.total_co2 === 'number' && Array.isArray(result.advice)) {
       return result as CalculationResult;
@@ -70,14 +85,16 @@ export async function getTravelAdvice(formData: FormData, distance_km: number): 
     }
 
   } catch (error) {
-    console.error('Error calling Gemini API:', error);
-    if (error instanceof SyntaxError) {
-      // Most likely the server returned HTML (e.g., 404 page) or a non-JSON error.
-      throw new Error('Invalid response from server. Is the /api/gemini endpoint running?');
-    }
+    console.error("Error calling Gemini API:", error);
     if (error instanceof Error) {
-      throw new Error(error.message);
+      if (error.message.includes('API key')) {
+        throw new Error('Invalid Gemini API key. Please check your VITE_GEMINI_API_KEY.');
+      }
+      if (error instanceof SyntaxError) {
+        throw new Error("Received invalid response from Gemini API. Please check your API key and try again.");
+      }
+      throw new Error(`Gemini API error: ${error.message}`);
     }
-    throw new Error('Failed to get travel advice from AI.');
+    throw new Error("Failed to get travel advice from AI. Please try again.");
   }
 }
