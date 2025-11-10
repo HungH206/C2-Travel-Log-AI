@@ -56,9 +56,13 @@ Instructions:
 
 export async function getTravelAdvice(formData: FormData, distance_km: number): Promise<CalculationResult> {
   try {
+    if (!apiKey) {
+      throw new Error('Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.');
+    }
+
     const prompt = buildPrompt(formData, distance_km);
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash-exp',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -67,6 +71,9 @@ export async function getTravelAdvice(formData: FormData, distance_km: number): 
     });
 
     let jsonText = response.text.trim();
+    
+    // Log the response for debugging
+    console.log('Gemini API response:', jsonText.substring(0, 200));
     
     // Clean up potential markdown formatting from the response
     if (jsonText.startsWith("```json")) {
@@ -86,9 +93,15 @@ export async function getTravelAdvice(formData: FormData, distance_km: number): 
 
   } catch (error) {
     console.error("Error calling Gemini API:", error);
-    if (error instanceof SyntaxError) {
-      throw new Error("Failed to parse AI response because it was not valid JSON. This can happen due to an API error. Please check your API key and inputs, then try again.");
+    if (error instanceof Error) {
+      if (error.message.includes('API key')) {
+        throw new Error('Invalid Gemini API key. Please check your VITE_GEMINI_API_KEY.');
+      }
+      if (error instanceof SyntaxError) {
+        throw new Error("Received invalid response from Gemini API. Please check your API key and try again.");
+      }
+      throw new Error(`Gemini API error: ${error.message}`);
     }
-    throw new Error("Failed to get travel advice from AI. Please check your inputs and try again.");
+    throw new Error("Failed to get travel advice from AI. Please try again.");
   }
 }
