@@ -1,5 +1,5 @@
 // Fix: Corrected the Google Maps type reference to "googlemaps" to resolve type definition errors.
-/// <reference types="googlemaps" />
+// <reference types="googlemaps" />
 import React, { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { LocateIcon } from './icons';
 
@@ -12,7 +12,7 @@ export interface MapComponentHandles {
   findRouteFromAddresses: (startAddress: string, endAddress: string) => void;
 }
 
-const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 const MapComponent = forwardRef<MapComponentHandles, MapComponentProps>(({ onRouteCalculated, onLocationError }, ref) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -27,11 +27,10 @@ const MapComponent = forwardRef<MapComponentHandles, MapComponentProps>(({ onRou
   const [endPoint, setEndPoint] = useState<google.maps.LatLngLiteral | null>(null);
 
   const initMap = useCallback(() => {
-    if (!mapContainerRef.current) return;
+    if (!mapContainerRef.current || !window.google?.maps) return;
     const map = new google.maps.Map(mapContainerRef.current, {
       center: { lat: 40.7128, lng: -74.0060 }, // Default to New York
-      zoom: 5,
-      mapId: 'ECOROUTE_AI_MAP'
+      zoom: 5
     });
     mapRef.current = map;
 
@@ -49,13 +48,13 @@ const MapComponent = forwardRef<MapComponentHandles, MapComponentProps>(({ onRou
   }, [startPoint, endPoint]);
 
   useEffect(() => {
-    if (window.google && window.google.maps) {
+    if (window.google && window.google.maps && window.google.maps.Map) {
         setIsApiLoaded(true);
         return;
     }
     
     if (!GOOGLE_MAPS_API_KEY) {
-        onLocationError("Google Maps API key is not configured. Please set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY.");
+        onLocationError("Google Maps API key is not configured. Please set VITE_GOOGLE_MAPS_API_KEY.");
         return;
     }
 
@@ -67,12 +66,18 @@ const MapComponent = forwardRef<MapComponentHandles, MapComponentProps>(({ onRou
 
     const script = document.createElement('script');
     script.id = scriptId;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=routes,geocoding&map_ids=ECOROUTE_AI_MAP`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=routes,geocoding&loading=async`;
     script.async = true;
     script.defer = true;
     
     script.onload = () => {
-        setIsApiLoaded(true);
+        // Wait for google.maps to be fully available
+        const checkGoogleMaps = setInterval(() => {
+            if (window.google && window.google.maps && window.google.maps.Map) {
+                clearInterval(checkGoogleMaps);
+                setIsApiLoaded(true);
+            }
+        }, 100);
     };
     script.onerror = () => {
         onLocationError("Failed to load Google Maps script.");
@@ -82,11 +87,8 @@ const MapComponent = forwardRef<MapComponentHandles, MapComponentProps>(({ onRou
   }, [onLocationError]);
 
   useEffect(() => {
-    if (isApiLoaded && !mapRef.current) {
+    if (isApiLoaded && !mapRef.current && window.google?.maps) {
         initMap();
-    }
-    if (isApiLoaded && !geocoderRef.current) {
-      geocoderRef.current = new google.maps.Geocoder();
     }
   }, [isApiLoaded, initMap]);
   
@@ -97,7 +99,7 @@ const MapComponent = forwardRef<MapComponentHandles, MapComponentProps>(({ onRou
   }, []);
 
   const calculateAndDisplayRoute = useCallback((origin: google.maps.LatLngLiteral, destination: google.maps.LatLngLiteral) => {
-    if (!mapRef.current) return;
+    if (!mapRef.current || !window.google?.maps) return;
     const directionsService = new google.maps.DirectionsService();
     if (!directionsRendererRef.current) {
         directionsRendererRef.current = new google.maps.DirectionsRenderer({ suppressMarkers: true });
@@ -127,6 +129,7 @@ const MapComponent = forwardRef<MapComponentHandles, MapComponentProps>(({ onRou
   }, [onRouteCalculated, onLocationError]);
 
   useEffect(() => {
+    if (!window.google?.maps) return;
     clearMap();
     if (startPoint && mapRef.current) {
         startMarkerRef.current = new google.maps.Marker({ position: startPoint, map: mapRef.current, label: 'A' });
@@ -139,9 +142,13 @@ const MapComponent = forwardRef<MapComponentHandles, MapComponentProps>(({ onRou
 
   useImperativeHandle(ref, () => ({
     findRouteFromAddresses: (startAddress, endAddress) => {
-      if (!geocoderRef.current) {
-        onLocationError("Geocoder not available.");
+      if (!window.google?.maps) {
+        onLocationError("Google Maps API not loaded yet.");
         return;
+      }
+      
+      if (!geocoderRef.current) {
+        geocoderRef.current = new google.maps.Geocoder();
       }
 
       const geocode = (address: string): Promise<google.maps.LatLngLiteral> => {
@@ -149,15 +156,33 @@ const MapComponent = forwardRef<MapComponentHandles, MapComponentProps>(({ onRou
           geocoderRef.current!.geocode({ address }, (results, status) => {
             if (status === 'OK' && results && results[0]) {
               resolve(results[0].geometry.location.toJSON());
-            } else {
-              reject(`Geocode was not successful for '${address}'. Reason: ${status}`);
+              return;
             }
+
+            // Map common GeocoderStatus codes to actionable messages so the
+            // UI can show helpful guidance (e.g. API key restrictions / billing).
+            let message = `Geocode was not successful for '${address}'. Reason: ${status}`;
+            if (status === 'ZERO_RESULTS') {
+              message = `No results found for '${address}'. Please check the spelling or try a different query.`;
+            } else if (status === 'OVER_QUERY_LIMIT') {
+              message = `Geocoding quota exceeded (OVER_QUERY_LIMIT). You may need to enable billing or reduce request frequency.`;
+            } else if (status === 'REQUEST_DENIED') {
+              // This is the most likely for "API project is not authorized to use this API".
+              message = `Request denied by Google Geocoding service. Common causes: the API key is missing, the key's API restrictions do not include the Maps JavaScript API / Geocoding service, or the key's HTTP referrer restrictions don't include your origin (e.g. http://localhost:3000). Check the Google Cloud Console API credentials.`;
+            } else if (status === 'INVALID_REQUEST') {
+              message = `Invalid geocoding request for '${address}'. This may indicate a malformed address or missing parameters.`;
+            } else if (status === 'UNKNOWN_ERROR') {
+              message = `An unknown error occurred while geocoding '${address}'. Try again.`;
+            }
+
+            reject(message);
           });
         });
       };
 
       Promise.all([geocode(startAddress), geocode(endAddress)])
         .then(([startCoords, endCoords]) => {
+          if (!window.google?.maps) return;
           setStartPoint(startCoords);
           setEndPoint(endCoords);
           const bounds = new google.maps.LatLngBounds();

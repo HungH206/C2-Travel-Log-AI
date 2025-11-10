@@ -1,22 +1,38 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import { FormData, CalculationResult } from '../types';
 
-// Fix: Adhere to Gemini API guidelines by initializing the client directly
-// with the API key from environment variables. This removes the unnecessary
-// fallback and warning logic.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Note: The official Google GenAI client library disallows initializing with an
+// API key directly in browser code for security reasons. To avoid that error
+// we lazily initialize the server-side client when running on the server, and
+// when in the browser we proxy requests to a server endpoint (e.g. `/api/gemini`).
 
+let serverAiClient: any = null;
+
+async function initServerClient() {
+  if (serverAiClient) return serverAiClient;
+  // Only initialize on the server (Node). In browser builds, `window` exists.
+  if (typeof window !== 'undefined') return null;
+  const { GoogleGenAI } = await import('@google/genai');
+  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) throw new Error('Server: GEMINI_API_KEY (or VITE_GEMINI_API_KEY) is not set');
+  serverAiClient = new GoogleGenAI({ apiKey });
+  return serverAiClient;
+}
+
+// Use a plain JSON schema (no dependency on @google/genai Type enum) so the
+// file can be bundled safely for the client. The server-side implementation
+// (which uses the official client) may re-use this schema when invoking the
+// model.
 const responseSchema = {
-  type: Type.OBJECT,
+  type: 'object',
   properties: {
-    route_co2: { type: Type.NUMBER },
-    electric_co2: { type: Type.NUMBER },
-    total_co2: { type: Type.NUMBER },
-    distance_km: { type: Type.NUMBER },
-    summary: { type: Type.STRING },
+    route_co2: { type: 'number' },
+    electric_co2: { type: 'number' },
+    total_co2: { type: 'number' },
+    distance_km: { type: 'number' },
+    summary: { type: 'string' },
     advice: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
+      type: 'array',
+      items: { type: 'string' },
     },
   },
   required: ['route_co2', 'electric_co2', 'total_co2', 'distance_km', 'summary', 'advice'],
@@ -51,22 +67,53 @@ Instructions:
 export async function getTravelAdvice(formData: FormData, distance_km: number): Promise<CalculationResult> {
   try {
     const prompt = buildPrompt(formData, distance_km);
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-      },
+    // If running on the server, call the GenAI client directly.
+    if (typeof window === 'undefined') {
+      const ai = await initServerClient();
+      if (!ai) throw new Error('Server AI client could not be initialized');
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: responseSchema,
+        },
+      });
+
+      const jsonText = response.text.trim();
+      const result = JSON.parse(jsonText);
+
+      if (result && typeof result.total_co2 === 'number' && Array.isArray(result.advice)) {
+        return result as CalculationResult;
+      } else {
+        throw new Error('Invalid response format from API');
+      }
+    }
+
+    // Running in the browser: do NOT initialize the GenAI client here. Instead
+    // POST the prompt to a server endpoint that will call the GenAI API using a
+    // server-side API key. This avoids exposing secrets and prevents the client
+    // library error seen when trying to set an API key in the browser.
+    //
+    // The project should implement an endpoint like `/api/gemini` that accepts
+    // { prompt, responseSchema } and returns the parsed JSON result.
+    const resp = await fetch('/api/gemini', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, responseSchema }),
     });
 
-    const jsonText = response.text.trim();
-    const result = JSON.parse(jsonText);
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Server proxy error: ${text}`);
+    }
+
+    const result = await resp.json();
     
     if (result && typeof result.total_co2 === 'number' && Array.isArray(result.advice)) {
       return result as CalculationResult;
     } else {
-      throw new Error("Invalid response format from API");
+      throw new Error('Invalid response format from API');
     }
 
   } catch (error) {

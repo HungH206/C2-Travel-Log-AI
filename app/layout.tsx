@@ -1,10 +1,5 @@
-import type { Metadata } from "next";
+import React from "react";
 import "./globals.css";
-
-export const metadata: Metadata = {
-  title: "C2 Travel AI",
-  description: "Calculate your travel carbon footprint and get AI-powered tips for sustainable travel.",
-};
 
 export default function RootLayout({
   children,

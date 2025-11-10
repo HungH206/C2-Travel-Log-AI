@@ -6,6 +6,7 @@ import { FormData, CalculationResult } from '../../types';
 import { getTravelAdvice } from '../../services/geminiService';
 import { MapPin, Loader2, TrendingDown, Lightbulb, Car, Bus, Bike, Zap, Plane } from '../../components/icons';
 import MapComponent, { MapComponentHandles } from '../../components/MapComponent';
+import ErrorBoundary from '../../components/ErrorBoundary';
 
 const DashboardPageClient: React.FC = () => {
   const [formData, setFormData] = useState<FormData>({
@@ -99,7 +100,14 @@ const DashboardPageClient: React.FC = () => {
               <p className="text-muted-foreground mb-6">Define your route on the map below, or type addresses.</p>
               <form onSubmit={handleSubmit} className="space-y-6">
                 
-                <MapComponent ref={mapComponentRef} onRouteCalculated={handleRouteCalculated} onLocationError={handleLocationError} />
+                <ErrorBoundary fallback={
+                  <div className="p-4 bg-destructive/20 text-destructive border border-destructive rounded-md">
+                    <h3 className="font-semibold">Map Error</h3>
+                    <p className="text-sm mt-1">Unable to load the map. Please check your Google Maps API key.</p>
+                  </div>
+                }>
+                  <MapComponent ref={mapComponentRef} onRouteCalculated={handleRouteCalculated} onLocationError={handleLocationError} />
+                </ErrorBoundary>
 
                 <div className="space-y-2">
                   <label htmlFor="start_location" className="font-medium">Start Location</label>
